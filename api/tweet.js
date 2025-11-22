@@ -41,20 +41,23 @@ export default async function handler(req, res) {
       try {
         const prompt = `Buatkan caption promosi jasa coding yang friendly dan menarik. Gunakan 1 emoji di awal atau di akhir saja. Maksimal ${maxCaptionLength} karakter. Tanpa hashtag. Output hanya kalimat caption saja.`;
 
-        const response = await axios.post(
-          "https://inference.jatevo.id/v1/chat/completions",
-          {
-            model: "deepseek-ai/DeepSeek-V3-0324",
-            messages: [{ role: "user", content: prompt }],
-            temperature: 0.9,
-          },
-          {
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${process.env.JATEVO_KEY}`,
-            },
-          }
-        );
+		const response = await axios.post(
+		  "https://inference.jatevo.id/v1/chat/completions",
+		  {
+			model: "deepseek-ai/DeepSeek-V3-0324",
+			messages: [{ role: "user", content: prompt }],
+			max_tokens: 200,
+			temperature: 0.9,
+			stream: false
+		  },
+		  {
+			headers: {
+			  "Content-Type": "application/json",
+			  Authorization: `Bearer ${process.env.JATEVO_KEY}`,
+			},
+		  }
+		);
+
 
         let caption = response.data.choices[0].message.content.trim();
         if (caption.length > maxCaptionLength) {
@@ -62,9 +65,11 @@ export default async function handler(req, res) {
         }
 
         return caption;
-      } catch {
-        return null;
-      }
+		} catch (error) {
+		  console.error("Jatevo Error:", error?.response?.data || error.message);
+		  return null;
+		}
+
     }
 
     const caption = (await generateCaption()) ?? getFallbackMessage();
