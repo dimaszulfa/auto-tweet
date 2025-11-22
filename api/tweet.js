@@ -75,6 +75,10 @@ export default async function handler(req, res) {
 
         return caption;
       } catch (error) {
+        if (error.response?.status === 429) {
+          console.log("RATE LIMIT 429 — Switching to fallback caption...");
+          return null;
+        }
         console.error("Jatevo Error:", error?.response?.data || error.message);
         return null;
       }
@@ -90,6 +94,7 @@ export default async function handler(req, res) {
 
     // === FALLBACK HANDLING ===
     if (!caption) {
+      console.log("AI failed — using fallback");
       let attempts = 0;
       do {
         caption = getFallbackMessage();
@@ -102,12 +107,11 @@ export default async function handler(req, res) {
 
     // === RANDOM EMOJI POSITION ===
     const emoji = emojis[Math.floor(Math.random() * emojis.length)];
-    const putEmojiAtStart = Math.random() < 0.5;
-    caption = putEmojiAtStart ? `${emoji} ${caption}` : `${caption} ${emoji}`;
+    caption = Math.random() < 0.5 ? `${emoji} ${caption}` : `${caption} ${emoji}`;
 
     const finalText = `${caption}\n\n${hashtags}`;
 
-    // === DUPLICATE CHECK AFTER FINAL TEXT ===
+    // === DUPLICATE CHECK ===
     if (lastTweet.rows[0]?.message === finalText) {
       return res.status(200).json({ skip: true, reason: "duplicate tweet" });
     }
@@ -126,8 +130,12 @@ export default async function handler(req, res) {
       media: { media_ids: [mediaId] },
     });
 
-    // === THREAD TWEET 2 (simple & santai) ===
-    const threadMessage = `Jasa Joki Tugas IT (Flutter Android, Kotlin, Laravel, JS)\nWA Fast Response: wa.me/6281223226212\nTestimoni: https://s.id/testikael\nWeb: https://santanadev.my.id`;
+    // === THREAD TWEET 2 (simple) ===
+    const threadMessage =
+      "Jasa Joki Tugas IT (Flutter Android, Kotlin, Laravel, JS)\n" +
+      "WA Fast Response: wa.me/6281223226212\n" +
+      "Testimoni: https://s.id/testikael\n" +
+      "Web: https://santanadev.my.id";
 
     await rwClient.v2.reply(threadMessage, tweet1.data.id);
 
