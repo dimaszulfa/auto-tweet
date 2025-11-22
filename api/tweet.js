@@ -46,6 +46,7 @@ export default async function handler(req, res) {
     const getFallbackMessage = () =>
       fallbackTexts[Math.floor(Math.random() * fallbackTexts.length)];
 
+    // === AI CAPTION GENERATOR ===
     async function generateCaption() {
       try {
         const prompt = `Buatkan caption promosi jasa coding yang friendly dan menarik. Gunakan 1 emoji di awal atau di akhir saja. Maksimal ${maxCaptionLength} karakter. Tanpa hashtag. Output hanya kalimat caption saja.`;
@@ -67,7 +68,9 @@ export default async function handler(req, res) {
           }
         );
 
-        let caption = response.data.choices[0].message.content.trim();
+        let caption = response.data?.choices?.[0]?.message?.content?.trim();
+
+        if (!caption) return null;
 
         if (caption.length > maxCaptionLength) {
           caption = caption.substring(0, maxCaptionLength - 3) + "...";
@@ -75,11 +78,11 @@ export default async function handler(req, res) {
 
         return caption;
       } catch (error) {
-        if (error.response?.status === 429) {
-          console.log("RATE LIMIT 429 — Switching to fallback caption...");
+        if (error?.response?.status === 429) {
+          console.log("JATEVO 429 — switching to fallback");
           return null;
         }
-        console.error("Jatevo Error:", error?.response?.data || error.message);
+        console.error("Jatevo Error Detail:", error?.response?.data || error.message);
         return null;
       }
     }
@@ -89,12 +92,11 @@ export default async function handler(req, res) {
       "SELECT message FROM tweet_log ORDER BY id DESC LIMIT 1"
     );
 
-    // === GENERATE CAPTION ===
+    // === GENERATE CAPTION / FALLBACK ===
     let caption = await generateCaption();
 
-    // === FALLBACK HANDLING ===
     if (!caption) {
-      console.log("AI failed — using fallback");
+      console.log("AI failed — switching to fallback");
       let attempts = 0;
       do {
         caption = getFallbackMessage();
@@ -105,7 +107,7 @@ export default async function handler(req, res) {
       );
     }
 
-    // === RANDOM EMOJI POSITION ===
+    // RANDOM EMOJI POSITION
     const emoji = emojis[Math.floor(Math.random() * emojis.length)];
     caption = Math.random() < 0.5 ? `${emoji} ${caption}` : `${caption} ${emoji}`;
 
@@ -116,26 +118,49 @@ export default async function handler(req, res) {
       return res.status(200).json({ skip: true, reason: "duplicate tweet" });
     }
 
-    // === UPLOAD IMAGE ===
-    const imageResponse = await axios.get(
-      "https://auto.santanadev.my.id/images/foto1.jpg",
-      { responseType: "arraybuffer" }
-    );
-    const imageBuffer = Buffer.from(imageResponse.data);
-    const mediaId = await rwClient.v1.uploadMedia(imageBuffer, { type: "jpg" });
+    // === UPLOAD IMAGE (WITH Twitter 429 HANDLER) ===
+    let mediaId = null;
+    try {
+      const imageResponse = await axios.get(
+        "https://auto.santanadev.my.id/images/foto1.jpg",
+        { responseType: "arraybuffer" }
+      );
+      const imageBuffer = Buffer.from(imageResponse.data);
+      mediaId = await rwClient.v1.uploadMedia(imageBuffer, { type: "jpg" });
+    } catch (err) {
+      if (err?.response?.status === 429) {
+        console.log("TWITTER upload 429 — skipping image");
+        mediaId = null;
+      } else {
+        console.error("TWITTER Upload Error:", err?.response?.data || err.message);
+        throw err;
+      }
+    }
 
-    // === TWEET UTAMA ===
-    const tweet1 = await rwClient.v2.tweet({
-      text: finalText,
-      media: { media_ids: [mediaId] },
-    });
+    // === TWEET 1 ===
+    let tweet1;
+    try {
+      tweet1 = await rwClient.v2.tweet(
+        mediaId
+          ? { text: finalText, media: { media_ids: [mediaId] } }
+          : { text: finalText }
+      );
+    } catch (err) {
+      console.error("TWITTER TWEET ERROR:", err?.response?.data || err.message);
 
-    // === THREAD TWEET 2 (simple) ===
+      if (err?.response?.status === 429) {
+        return res.status(200).json({ fallback: true, reason: "Twitter 429 tweet limit" });
+      }
+
+      throw err;
+    }
+
+    // === THREAD (tweet 2) ===
     const threadMessage =
       "Jasa Joki Tugas IT (Flutter Android, Kotlin, Laravel, JS)\n" +
       "WA Fast Response: wa.me/6281223226212\n" +
       "Testimoni: https://s.id/testikael\n" +
-      "Web: https://santanadev.my.id";
+      "Website: https://santanadev.my.id";
 
     await rwClient.v2.reply(threadMessage, tweet1.data.id);
 
@@ -145,8 +170,10 @@ export default async function handler(req, res) {
     ]);
 
     return res.status(200).json({ success: true, tweet: finalText });
+
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    console.error("FINAL ERROR:", err?.response?.data || err.message);
+    return res.status(200).json({ error: err?.response?.data || err.message });
   } finally {
     clientDB.end();
   }
