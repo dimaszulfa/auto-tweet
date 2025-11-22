@@ -22,7 +22,6 @@ export default async function handler(req, res) {
     const rwClient = client;
 
     const emojis = ["🚀", "✨", "😊", "😉", "🔥", "💡", "🙌"];
-
     const hashtags =
       "#zonauang #joki #flutter #kotlin #android #IT #skripsiIT #jasacoding #jasaflutter #jasajoki #androidstudio #jasaskripsi #jasabackend";
 
@@ -46,7 +45,7 @@ export default async function handler(req, res) {
     const getFallbackMessage = () =>
       fallbackTexts[Math.floor(Math.random() * fallbackTexts.length)];
 
-    // === AI CAPTION GENERATOR ===
+    // === AI CAPTION ===
     async function generateCaption() {
       try {
         const prompt = `Buatkan caption promosi jasa coding yang friendly dan menarik. Gunakan 1 emoji di awal atau di akhir saja. Maksimal ${maxCaptionLength} karakter. Tanpa hashtag. Output hanya kalimat caption saja.`;
@@ -69,7 +68,6 @@ export default async function handler(req, res) {
         );
 
         let caption = response.data?.choices?.[0]?.message?.content?.trim();
-
         if (!caption) return null;
 
         if (caption.length > maxCaptionLength) {
@@ -82,7 +80,7 @@ export default async function handler(req, res) {
           console.log("JATEVO 429 — switching to fallback");
           return null;
         }
-        console.error("Jatevo Error Detail:", error?.response?.data || error.message);
+        console.error("JATEVO ERROR FULL:", error?.response?.data || error.message);
         return null;
       }
     }
@@ -92,11 +90,10 @@ export default async function handler(req, res) {
       "SELECT message FROM tweet_log ORDER BY id DESC LIMIT 1"
     );
 
-    // === GENERATE CAPTION / FALLBACK ===
+    // === GENERATE CAPTION & FALLBACK ===
     let caption = await generateCaption();
-
     if (!caption) {
-      console.log("AI failed — switching to fallback");
+      console.log("AI failed — using fallback...");
       let attempts = 0;
       do {
         caption = getFallbackMessage();
@@ -107,18 +104,18 @@ export default async function handler(req, res) {
       );
     }
 
-    // RANDOM EMOJI POSITION
+    // === EMOJI RANDOM ===
     const emoji = emojis[Math.floor(Math.random() * emojis.length)];
     caption = Math.random() < 0.5 ? `${emoji} ${caption}` : `${caption} ${emoji}`;
 
     const finalText = `${caption}\n\n${hashtags}`;
 
-    // === DUPLICATE CHECK ===
+    // === DUPLICATE DETECTION ===
     if (lastTweet.rows[0]?.message === finalText) {
       return res.status(200).json({ skip: true, reason: "duplicate tweet" });
     }
 
-    // === UPLOAD IMAGE (WITH Twitter 429 HANDLER) ===
+    // === UPLOAD IMAGE WITH 429 HANDLE ===
     let mediaId = null;
     try {
       const imageResponse = await axios.get(
@@ -129,15 +126,13 @@ export default async function handler(req, res) {
       mediaId = await rwClient.v1.uploadMedia(imageBuffer, { type: "jpg" });
     } catch (err) {
       if (err?.response?.status === 429) {
-        console.log("TWITTER upload 429 — skipping image");
-        mediaId = null;
+        console.log("TWITTER 429 — skipping image upload");
       } else {
-        console.error("TWITTER Upload Error:", err?.response?.data || err.message);
-        throw err;
+        console.error("UPLOAD ERROR DETAILS:", err?.response?.data || err.message);
       }
     }
 
-    // === TWEET 1 ===
+    // === SEND TWEET ===
     let tweet1;
     try {
       tweet1 = await rwClient.v2.tweet(
@@ -146,16 +141,20 @@ export default async function handler(req, res) {
           : { text: finalText }
       );
     } catch (err) {
-      console.error("TWITTER TWEET ERROR:", err?.response?.data || err.message);
+      console.error("TWITTER POST ERROR FULL:", err?.response?.data || err.message);
 
       if (err?.response?.status === 429) {
-        return res.status(200).json({ fallback: true, reason: "Twitter 429 tweet limit" });
+        return res.status(200).json({
+          fallback: true,
+          source: "Twitter Tweet Limit",
+          error: err?.response?.data,
+        });
       }
 
       throw err;
     }
 
-    // === THREAD (tweet 2) ===
+    // === THREAD SECOND TWEET ===
     const threadMessage =
       "Jasa Joki Tugas IT (Flutter Android, Kotlin, Laravel, JS)\n" +
       "WA Fast Response: wa.me/6281223226212\n" +
@@ -164,7 +163,7 @@ export default async function handler(req, res) {
 
     await rwClient.v2.reply(threadMessage, tweet1.data.id);
 
-    // === SAVE TO DB ===
+    // === SAVE DB ===
     await clientDB.query("INSERT INTO tweet_log (message) VALUES ($1)", [
       finalText,
     ]);
@@ -172,8 +171,15 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true, tweet: finalText });
 
   } catch (err) {
-    console.error("FINAL ERROR:", err?.response?.data || err.message);
-    return res.status(200).json({ error: err?.response?.data || err.message });
+    console.error("FINAL ERROR FULL:", err?.response?.data || err);
+    return res.status(200).json({
+      error: err?.response?.data || err?.data || err?.message,
+      status: err?.response?.status,
+      source: err?.response?.headers?.["x-rate-limit-limit"]
+        ? "TWITTER"
+        : "JATEVO / OTHER",
+      headers: err?.response?.headers ?? null,
+    });
   } finally {
     clientDB.end();
   }
