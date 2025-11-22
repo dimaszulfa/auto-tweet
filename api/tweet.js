@@ -65,7 +65,7 @@ export default async function handler(req, res) {
     const caption = (await generateCaption()) ?? getFallbackMessage();
     const finalText = `${caption}\n\n${hashtags}`;
 
-    const mediaId = await rwClient.v1.uploadMedia("./images/foto1.jpg");
+    const mediaId = await rwClient.v1.uploadMedia("../images/foto1.jpg");
     await rwClient.v2.tweet({
       text: finalText,
       media: { media_ids: [mediaId] },
