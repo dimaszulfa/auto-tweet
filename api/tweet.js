@@ -134,25 +134,27 @@ export default async function handler(req, res) {
 
     // === SEND TWEET ===
     let tweet1;
-    try {
-      tweet1 = await rwClient.v2.tweet(
-        mediaId
-          ? { text: finalText, media: { media_ids: [mediaId] } }
-          : { text: finalText }
-      );
-    } catch (err) {
-      console.error("TWITTER POST ERROR FULL:", err?.response?.data || err.message);
+	try {
+	  tweet1 = await rwClient.v2.tweet(
+		mediaId
+		  ? { text: finalText, media: { media_ids: [mediaId] } }
+		  : { text: finalText }
+	  );
+	} catch (err) {
+	  console.error("TWITTER POST ERROR FULL:", err?.response?.data || err.message);
 
-      if (err?.response?.status === 429) {
-        return res.status(200).json({
-          fallback: true,
-          source: "Twitter Tweet Limit",
-          error: err?.response?.data,
-        });
-      }
+	  if (err?.response?.status === 429) {
+		return res.status(200).json({
+		  skip: true,
+		  reason: "Rate limited by Twitter, waiting until reset",
+		  nextRetryAt: new Date(Number(err.response.headers["x-rate-limit-reset"]) * 1000),
+		  type: "TWITTER_LIMIT"
+		});
+	  }
 
-      throw err;
-    }
+	  throw err;
+	}
+
 
     // === THREAD SECOND TWEET ===
     const threadMessage =
