@@ -46,45 +46,56 @@ export default async function handler(req, res) {
     const getFallbackMessage = () =>
       fallbackTexts[Math.floor(Math.random() * fallbackTexts.length)];
 
-    async function generateCaption() {
-      try {
-        const prompt = `Buatkan caption promosi jasa coding yang friendly dan menarik. Gunakan 1 emoji di awal atau di akhir saja. Maksimal ${maxCaptionLength} karakter. Tanpa hashtag. Output hanya kalimat caption saja.`;
+async function generateCaption(lastText) {
+  try {
+    const prompt = `
+Buatkan caption promosi jasa coding yang friendly, menarik, dan unik. 
+Gunakan hanya 1 emoji di awal atau akhir. Maksimal ${maxCaptionLength} karakter. Tanpa hashtag.
 
-        const response = await axios.post(
-          "https://inference.jatevo.id/v1/chat/completions",
-          {
-            model: "deepseek-ai/DeepSeek-V3-0324",
-            messages: [{ role: "user", content: prompt }],
-            max_tokens: 200,
-            temperature: 0.9,
-            stream: false,
-          },
-          {
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${process.env.JATEVO_KEY}`,
-            },
-          }
-        );
+PERATURAN PENTING:
+- Jangan gunakan kalimat yang mirip atau sama dengan contoh sebelumnya.
+- Jangan pakai frasa, susunan kata, atau gaya penulisan yang mirip dengan caption ini:
+"${lastText}"
 
-        let caption = response.data?.choices?.[0]?.message?.content?.trim();
-        if (!caption) return null;
+Output hanya isi caption, tanpa tambahan catatan atau karakter lain.
+`;
 
-        if (caption.length > maxCaptionLength) {
-          caption = caption.substring(0, maxCaptionLength - 3) + "...";
-        }
-
-        return caption;
-      } catch {
-        return null;
+    const response = await axios.post(
+      "https://inference.jatevo.id/v1/chat/completions",
+      {
+        model: "deepseek-ai/DeepSeek-V3-0324",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 200,
+        temperature: 1.0,
+        stream: false,
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.JATEVO_KEY}`,
+        },
       }
+    );
+
+    let caption = response.data?.choices?.[0]?.message?.content?.trim();
+    if (!caption) return null;
+
+    if (caption.length > maxCaptionLength) {
+      caption = caption.substring(0, maxCaptionLength - 3) + "...";
     }
+
+    return caption;
+  } catch (err) {
+    return null;
+  }
+}
+
 
     const lastTweet = await clientDB.query(
       "SELECT message FROM tweet_log ORDER BY id DESC LIMIT 1"
     );
 
-    let caption = await generateCaption();
+	let caption = await generateCaption(lastTweet.rows[0]?.message || "");
     if (!caption) {
       let attempts = 0;
       do {
